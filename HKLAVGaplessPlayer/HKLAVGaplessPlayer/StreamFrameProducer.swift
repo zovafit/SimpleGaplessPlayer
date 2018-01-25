@@ -299,24 +299,24 @@ class StreamFrameProducer: NSObject {
 
     /// 再生位置。window内における先頭(古)〜末尾(新)を、0.0-1.0の数値で表す
     var position: Float { return _position }
-    private var _position: Float = 1.0
+    var _position: Float = 1.0
 
     // MARK: Privates
 
-    private let _decodeQueue: DispatchQueue
-    private var _assets = [AssetHolder]() // アセット
-    private var _readers = [AssetReaderFragment]() // リーダー
+    let _decodeQueue: DispatchQueue
+    var _assets = [AssetHolder]() // アセット
+    var _readers = [AssetReaderFragment]() // リーダー
 
-    private var _currentSampleBuffer: (sbuf:CMSampleBuffer, frameDuration:CMTime)! = nil
-    private var _currentPresentationTimestamp: CMTime = kCMTimeZero
+    var _currentSampleBuffer: (sbuf:CMSampleBuffer, frameDuration:CMTime)! = nil
+    var _currentPresentationTimestamp: CMTime = kCMTimeZero
 
 
     /// アセット全体の総再生時間（内部管理用）
-    private var _amountDuration = kCMTimeZero
-    private var _window = CMTime(value: 5, 1)
+    var _amountDuration = kCMTimeZero
+    var _window = CMTime(value: 5, 1)
 
     /// 再生レート。1.0が通常再生、2.0だと倍速再生
-    private var _playbackRate: Float = 1.0
+    var _playbackRate: Float = 1.0
 
     /**
     現在位置をリセットする
@@ -370,10 +370,15 @@ class StreamFrameProducer: NSObject {
                 }
                 return ( frameData.sampleBuffer, frameData.duration )
             } else {
-                if target.status == .completed {
-                    // 現在のリーダーからサンプルバッファをすべて読み終えた場合、次へ移動する
-                    // TODO: 取得したサンプルバッファの位置が1.0を超えていた場合も移動する
+                if target.status == .completed  {
+                    
                     advanceToNextAsset(shouldLock: false)
+                    
+                // DJF - State when it loops and random access is set to true.
+                // Was stuttering with the original method
+                } else if (target.status == .reading) {
+                    debugPrint("reading")
+                    target.resetRange()
                 } else {
                     NSLog("[\(target.URL!.lastPathComponent)] Invalid state[\(Int(target.status.rawValue))]. Something is wrong.")
                     _readers.remove(at: 0)
@@ -390,7 +395,11 @@ class StreamFrameProducer: NSObject {
         if (_readers.count >= maxNumOfReaders) { return }
 
         // アセットをどこから読み込むかを決定する
-        let startIndex = (initial == nil) ? 0 : _assets.index(where: {$0.asset == initial!}) ?? 0
+        //let startIndex = (initial == nil) ? 0 : _assets.index(where: {$0.asset == initial!}) ?? 0
+        
+        // djf hack to make sure it's always playing from most recent asset 
+        let startIndex = (initial == nil) ? 0 : _assets.count - 1
+        
         // startTimeの設定は初回のみ有効
         var startTime = time
 
@@ -481,7 +490,7 @@ class StreamFrameProducer: NSObject {
             }
             retry -= 1
         } while retry > 0
-        NSLog("Failed to create an asset reader fragment for \(asset)")
+        NSLog("Failed to create an asset reader fragment for \(asset) \(startTime) \(endTime)")
         return nil
     }
 }

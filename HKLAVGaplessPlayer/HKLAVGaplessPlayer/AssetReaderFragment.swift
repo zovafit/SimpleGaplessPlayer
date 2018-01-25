@@ -64,7 +64,7 @@ internal class AssetReaderFragment: NSObject {
             return nil
         }
         _output = _reader.outputs.first
-
+        _output.supportsRandomAccess = true
         // 読み込み開始
         if self._reader.startReading() == false {
             NSLog("Failed to start a reader:\(self._reader)\n error:\(String(describing: self._reader.error))")
@@ -113,6 +113,10 @@ internal class AssetReaderFragment: NSObject {
     private var _frameInterval: CMTime = kCMTimeIndefinite
     private var _lastPresentationTimestamp: CMTime = kCMTimeZero
 
+    func resetRange() {
+        let range = CMTimeRangeMake(kCMTimeZero, asset.duration)
+        _output.reset(forReadingTimeRanges: [NSValue(timeRange: range)] )
+    }
     /**
     アセットの指定範囲をフレーム単位で取り出すためのリーダーを作成する。
     具体的には再生時間帯を限定したコンポジションを作成し、そのフレームを取り出すための

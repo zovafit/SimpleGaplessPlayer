@@ -144,7 +144,7 @@ enum {
     GLint _uniforms[NUM_UNIFORMS];
 
     CGFloat _bgRed, _bgGreen, _bgBlue, _bgAlpha;
-
+    CGSize viewSize;
     OSType _pixelFormatType;
 }
 @end
@@ -175,7 +175,7 @@ enum {
     self = [super initWithFrame:frame];
 
     self.backgroundColor = self.backgroundColor;
-
+    viewSize = frame.size;
     _pixelFormatType = kCVPixelFormatType_32BGRA;
 
     if (![self initializeContext]) {
@@ -392,6 +392,26 @@ bail:
     _oglContext = nil;
 }
 
+- (BOOL)setupIfNeeded {
+    EAGLContext *oldContext = [EAGLContext currentContext];
+    if ( oldContext != _oglContext ) {
+        if ( ! [EAGLContext setCurrentContext:_oglContext] ) {
+            @throw [NSException exceptionWithName:NSInternalInconsistencyException
+                                           reason:@"Problem with OpenGL context"
+                                         userInfo:nil];
+            return false;
+        }
+    }
+    if ( _frameBufferHandle == 0 ) {
+        BOOL success = [self initializeBuffers];
+        if ( ! success ) {
+            NSLog( @"Problem initializing OpenGL buffers." );
+            return false;
+        }
+    }
+    return true;
+}
+
 - (void)displayPixelBuffer:(CVPixelBufferRef)pixelBuffer
 {
     if ( pixelBuffer == NULL ) {
@@ -411,12 +431,8 @@ bail:
         }
     }
 
-    if ( _frameBufferHandle == 0 ) {
-        BOOL success = [self initializeBuffers];
-        if ( ! success ) {
-            NSLog( @"Problem initializing OpenGL buffers." );
-            return;
-        }
+    if (![self setupIfNeeded]) {
+        return;
     }
 
     OSType type = CVPixelBufferGetPixelFormatType(pixelBuffer);
@@ -545,7 +561,7 @@ bail:
     GLfloat textureVertices[8];
 
     // Get vertices preserved aspect ratio
-    GetAspectFitVertices(self.bounds.size, (CGSize){frameWidth,frameHeight},
+    GetAspectFillVertices(viewSize, (CGSize){frameWidth,frameHeight},
                          squareVertices, textureVertices);
     
     glVertexAttribPointer( ATTRIB_VERTEX, 2, GL_FLOAT, 0, 0, squareVertices );
@@ -577,6 +593,11 @@ bail:
     if ( _textureCache ) {
         CVOpenGLESTextureCacheFlush(_textureCache, 0);
     }
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    viewSize = self.bounds.size;
 }
 
 #pragma mark -

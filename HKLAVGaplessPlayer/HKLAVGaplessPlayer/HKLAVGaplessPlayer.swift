@@ -22,9 +22,11 @@ public let HKLAVGaplessPlayerPlayRateAsIs: Float =  .leastNormalMagnitude
 */
 public class HKLAVGaplessPlayer: NSObject {
     public weak var delegate: HKLAVGaplessPlayerDelegate! = nil
-
+    var timer: DispatchSourceTimer?
+    var timerStarted : Bool = false
+    let renderQueue = DispatchQueue(label: "com.renderloop.timer", qos: .userInteractive)
     public override convenience init() {
-        let queue = DispatchQueue(label: "com.KatokichiSoft.HKLAVGaplessPlayer.producer")
+        let queue = DispatchQueue(label: "com.KatokichiSoft.HKLAVGaplessPlayer.producer", qos: .userInteractive)
         self.init(decodeQueue:queue)
     }
     public init(decodeQueue: DispatchQueue) {
@@ -32,13 +34,34 @@ public class HKLAVGaplessPlayer: NSObject {
 
         super.init()
 
-        // DisplayLinkを作成
-        _displayLink = CADisplayLink(target: self, selector: #selector(_displayLinkCallback(displayLink:)))
-        _displayLink.frameInterval = 60 / playbackFrameRate
-        _displayLink.isPaused = true
-        DispatchQueue.main.async {
-            self._displayLink.add(to: RunLoop.main, forMode: .defaultRunLoopMode)
+        setupTimer()
+    }
+    
+    func setupTimer() {
+        timer?.cancel()
+        timer = DispatchSource.makeTimerSource(queue: renderQueue)
+        timer?.scheduleRepeating(deadline: .now(), interval: .milliseconds(33))
+        timer?.setEventHandler { [weak self] in
+            self!._displayLinkCallback()
         }
+    }
+    
+    func startTimer() {
+        debugPrint("\(self) startTimer")
+        if timerStarted {
+            return
+        }
+        timer?.resume()
+        timerStarted = true
+    }
+    
+    func stopTimer() {
+        debugPrint("\(self) stopTimer")
+        if !timerStarted {
+            return
+        }
+        timer?.suspend()
+        timerStarted = false
     }
 
     /// Returns the array of appended assets.
@@ -139,7 +162,7 @@ public class HKLAVGaplessPlayer: NSObject {
     /**
     true if the player is in playing.
     */
-    public var isPlaying: Bool { return !_displayLink.isPaused }
+    public var isPlaying: Bool { return timerStarted }
 
     /** The automatic vs. nonautomatic repeat state of the player.
 
@@ -187,15 +210,15 @@ public class HKLAVGaplessPlayer: NSObject {
     let _producer: StreamFrameProducer
 
     /// 最後にピクセルバッファを取得した時刻
-    private var _lastTimestamp: CFTimeInterval = 0
+    var _lastTimestamp: CFTimeInterval = 0
     /// 表示に使う時間の残り時間
-    private var _remainingPresentationTime: CFTimeInterval = 0.0
-    private var _previousTimestamp: CFTimeInterval = 0.0
+    var _remainingPresentationTime: CFTimeInterval = 0.0
+    var _previousTimestamp: CFTimeInterval = 0.0
 
     /// 再生速度の係数。1.0が通常速度、2.0だと倍速になる
-    private var _playbackRate : CFTimeInterval = 1.0
+    var _playbackRate : CFTimeInterval = 1.0
 
-    private var _positionContext = 0
+    var _positionContext = 0
 
     /**
     プレーヤーを再生開始
@@ -212,22 +235,24 @@ public class HKLAVGaplessPlayer: NSObject {
         if rate == 0 {
 
             // 一時停止
-            _displayLink.isPaused = true
+            //_displayLink.isPaused = true
             _lastTimestamp = CACurrentMediaTime()
             _remainingPresentationTime = 0.0
             _previousTimestamp = 0.0
             _playbackRate = CFTimeInterval(rate)
+            stopTimer()
         } else {
 
             // 指定レートで再生開始
             playbackFrameRate = delegate?.expectedPlaybackFramerate(player: self) ?? playbackFrameRate
-            _displayLink.frameInterval = 60 / playbackFrameRate
+            //_displayLink.frameInterval = 60 / playbackFrameRate
 
             if _producer.startReading(rate: rate, atPosition: pos) {
                 _lastTimestamp = CACurrentMediaTime()
                 _remainingPresentationTime = 0.0
                 _previousTimestamp = 0.0
-                _displayLink.isPaused = false
+                //_displayLink.isPaused = false
+                startTimer()
                 _playbackRate = CFTimeInterval(rate)
             }
         }
@@ -242,22 +267,20 @@ extension HKLAVGaplessPlayer {
 
     :param: displayLink CADisplayLink。現在時刻や直近の処理時間を取得できる
     */
-    @objc func _displayLinkCallback(displayLink: CADisplayLink) {
+    @objc func _displayLinkCallback() {
 
-        // 表示時間を計算
+
         let now = CACurrentMediaTime()
         var delta: CFTimeInterval
         if _previousTimestamp.isZero {
-            delta = displayLink.duration * CFTimeInterval(displayLink.frameInterval)
+            delta = CFTimeInterval(1.0 / 60)
         } else {
             delta = now - _previousTimestamp
         }
         _previousTimestamp = now
-
-        // 時間を供給
         _remainingPresentationTime += delta
 
-        // フレームの表示可能時間を、供給されたぶんだけ消費する
+        let timestamp = CFAbsoluteTimeGetCurrent()
         while _remainingPresentationTime > 0.0 {
 
             // サンプルバッファの取得
@@ -265,7 +288,7 @@ extension HKLAVGaplessPlayer {
 
                 // サンプルバッファの最新取得時刻を更新した上で、
                 // 得られたプレゼンテーション時間を消費する
-                _lastTimestamp = displayLink.timestamp
+                _lastTimestamp = timestamp// displayLink.timestamp
 
                 if duration == FrameDurationIsAsIs {
                     // HKLAVGaplessPlayerPlayRateAsIsの場合は1VSYNC==1フレームとなる
@@ -285,8 +308,8 @@ extension HKLAVGaplessPlayer {
             }
         }
 
-        if displayLink.timestamp - _lastTimestamp > 0.5 {
-            displayLink.isPaused = true
+        if timestamp - _lastTimestamp > 0.5 {
+            //displayLink.isPaused = true
             NSLog("Paused display link in order to save energy.")
         }
     }

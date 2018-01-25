@@ -55,5 +55,5 @@
 - (void)displayPixelBuffer:(CVPixelBufferRef)pixelBuffer;
 - (void)flushPixelBufferCache;
 - (void)reset;
-
+- (BOOL)setupIfNeeded;
 @end
